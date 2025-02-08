@@ -8,6 +8,7 @@ import folium
 from streamlit_folium import folium_static
 from geopy.distance import geodesic
 import requests
+import streamlit.components.v1 as components
 import speech_recognition as sr
 
 # Set up logging
@@ -64,40 +65,15 @@ def get_coordinates(place):
         return None
 
 # Function to create a map
-def create_map(location, zoom_start=13, markers=None, polyline=None):
-    m = folium.Map(location=location, zoom_start=zoom_start)
-    if markers:
-        for marker in markers:
-            folium.Marker(marker[0], popup=marker[1], icon=folium.Icon(color=marker[2])).add_to(m)
-    if polyline:
-        folium.PolyLine(polyline, color="blue", weight=2.5, opacity=1).add_to(m)
+def create_map(start_coords, end_coords):
+    m = folium.Map(location=start_coords, zoom_start=13)
+    folium.Marker(start_coords, popup="Start Point", icon=folium.Icon(color='green')).add_to(m)
+    folium.Marker(end_coords, popup="End Point", icon=folium.Icon(color='red')).add_to(m)
+    folium.PolyLine([start_coords, end_coords], color="blue", weight=2.5, opacity=1).add_to(m)
     return m
 
-# Function to find nearby hospitals
-def find_nearby_hospitals(lat, lon, radius=5000):
-    url = f"https://nominatim.openstreetmap.org/search?q=hospital&format=json&lat={lat}&lon={lon}&radius={radius}"
-    headers = {"User-Agent": "RouteFinder/1.0"}
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    hospitals = []
-    for item in data:
-        hospitals.append((float(item['lat']), float(item['lon'])))
-    return hospitals
-
-# Function to calculate fare based on distance and vehicle type
-def calculate_fare(distance, vehicle_type):
-    # Fixed fare rates per km (for demonstration purposes)
-    fare_rates = {
-        "Car": 10,  # ₹10 per km
-        "Motorcycle": 5,  # ₹5 per km
-        "Bus": 2,  # ₹2 per km
-        "Train": 1,  # ₹1 per km (approximate fare for trains)
-        "Walking": 0,  # Free
-    }
-    return distance * fare_rates.get(vehicle_type, 0)
-
-# Function to handle voice input
-def get_voice_input():
+# Function to convert speech to text
+def speech_to_text():
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         st.write("Listening...")
@@ -106,86 +82,70 @@ def get_voice_input():
             text = recognizer.recognize_google(audio)
             return text
         except sr.UnknownValueError:
-            st.error("Sorry, I could not understand the audio.")
+            st.error("Could not understand the audio")
         except sr.RequestError as e:
-            st.error(f"Could not request results from Google Speech Recognition service; {e}")
+            st.error(f"Could not request results; {e}")
     return None
 
 # Streamlit UI
-st.set_page_config(page_title="Route Finder with AI", layout="wide")
-st.title("Route Finder with AI and Voice Input")
+st.set_page_config(page_title="Accessible Transport Navigator", layout="wide")
+st.title("Accessible Transport Navigator")
 
 # Initialize session state for voice input
-if "start_place" not in st.session_state:
-    st.session_state.start_place = ""
-if "end_place" not in st.session_state:
-    st.session_state.end_place = ""
+if 'start_place' not in st.session_state:
+    st.session_state['start_place'] = ""
+if 'end_place' not in st.session_state:
+    st.session_state['end_place'] = ""
 
 # Input fields
 col1, col2 = st.columns(2)
 with col1:
-    start_place = st.text_input("Start Location:", placeholder="Enter start location", value=st.session_state.start_place, key="start_input")
-    start_voice = st.button("🎤 Start Location Voice Input")
+    start_place = st.text_input("Start Location:", placeholder="Enter start location", value=st.session_state['start_place'])
+    if st.button("🎤 Start Location Voice Input"):
+        voice_text = speech_to_text()
+        if voice_text:
+            st.session_state['start_place'] = voice_text
+            start_place = voice_text
 with col2:
-    end_place = st.text_input("End Location:", placeholder="Enter destination", value=st.session_state.end_place, key="end_input")
-    end_voice = st.button("🎤 End Location Voice Input")
+    end_place = st.text_input("End Location:", placeholder="Enter destination", value=st.session_state['end_place'])
+    if st.button("🎤 End Location Voice Input"):
+        voice_text = speech_to_text()
+        if voice_text:
+            st.session_state['end_place'] = voice_text
+            end_place = voice_text
 
-# Handle voice input
-if start_voice:
-    voice_input = get_voice_input()
-    if voice_input:
-        st.session_state.start_place = voice_input
-        st.rerun()  # Refresh the app to update the input field
+# Vehicle type selection and fare calculation
+vehicle_types = {"Car": 60, "Motorcycle": 50, "Bus": 40, "Walking": 5, "Train": 80, "Bike": 20}
+vehicle_fares = {"Car": 10, "Motorcycle": 5, "Bus": 3, "Walking": 0, "Train": 8, "Bike": 2}
+vehicle = st.selectbox("Choose your vehicle type", list(vehicle_types.keys()))
 
-if end_voice:
-    voice_input = get_voice_input()
-    if voice_input:
-        st.session_state.end_place = voice_input
-        st.rerun()  # Refresh the app to update the input field
-
-# Vehicle type selection
-vehicle_type = st.selectbox(
-    "Select Mode of Transport",
-    ["Car", "Motorcycle", "Bus", "Train", "Walking"],  # Added Train
-    index=0,  # Default to Car
-)
+# Emergency calling slide
+st.sidebar.title("Emergency Assistance")
+if st.sidebar.button("Call Emergency Services"):
+    st.sidebar.write("Calling emergency services...")
+    st.sidebar.write("Please stay calm and provide your location to the operator.")
+    st.sidebar.write("Emergency Numbers:")
+    st.sidebar.write("Police: 100")
+    st.sidebar.write("Ambulance: 102")
+    st.sidebar.write("Fire: 101")
 
 # Language selection
 target_language = st.selectbox("Choose language for translation", list(indian_languages.keys()))
 
-# Emergency calling button
-st.markdown("### Emergency Services")
-st.markdown("Call emergency services at **112** in India.")
-if st.button("🚨 Call Emergency Services"):
-    st.write("Redirecting to emergency services...")
-
 if st.button("Find Route"):
-    if st.session_state.start_place and st.session_state.end_place:
-        start_coords = get_coordinates(st.session_state.start_place)
-        end_coords = get_coordinates(st.session_state.end_place)
+    if start_place and end_place:
+        start_coords = get_coordinates(start_place)
+        end_coords = get_coordinates(end_place)
 
         if start_coords and end_coords:
             # Calculate distance
             distance = geodesic(start_coords, end_coords).kilometers
-
-            # Define speeds for different vehicle types (in km/h)
-            speeds = {
-                "Car": 60,
-                "Motorcycle": 50,
-                "Bus": 40,
-                "Train": 60,  # Average speed for trains
-                "Walking": 5,
-            }
-
-            # Calculate travel time based on selected vehicle type
-            speed = speeds.get(vehicle_type, 60)  # Default to Car speed if vehicle type is not found
+            speed = vehicle_types[vehicle]
             time = (distance / speed) * 60  # Time in minutes
-
-            # Calculate fare
-            fare = calculate_fare(distance, vehicle_type)
+            fare = distance * vehicle_fares[vehicle]
 
             # Generate directions using AI
-            directions = query_directions(st.session_state.start_place, st.session_state.end_place)
+            directions = query_directions(start_place, end_place)
             language_code = indian_languages[target_language]
             translated_directions = translate_and_speak_text(directions, language_code)
 
@@ -193,35 +153,55 @@ if st.button("Find Route"):
             st.subheader("Directions")
             st.write(translated_directions)
 
-            # Display travel details
-            st.subheader("Travel Details")
-            st.write(f"Distance: {distance:.2f} km")
-            st.write(f"Estimated Travel Time: {time:.2f} minutes (by {vehicle_type})")
+            # Display fare and time
+            st.subheader("Fare and Time")
             st.write(f"Estimated Fare: ₹{fare:.2f}")
+            st.write(f"Estimated Time: {time:.2f} minutes")
 
-            # Display route map
+            # Display map
             st.subheader("Route Map")
-            route_map = create_map(
-                location=start_coords,
-                markers=[
-                    (start_coords, "Start Point", "green"),
-                    (end_coords, "End Point", "red")
-                ],
-                polyline=[start_coords, end_coords]
-            )
-            folium_static(route_map)
+            m = create_map(start_coords, end_coords)
+            folium_static(m)
 
-            # Display nearby hospitals map
-            st.subheader("Nearby Hospitals")
-            hospitals = find_nearby_hospitals(start_coords[0], start_coords[1])
-            if hospitals:
-                hospital_map = create_map(
-                    location=start_coords,
-                    markers=[(hospital, "Hospital", "blue") for hospital in hospitals]
-                )
-                folium_static(hospital_map)
-            else:
-                st.warning("No nearby hospitals found.")
+            # Embed JavaScript for map interactions
+            components.html(
+                f"""
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Route Map</title>
+                    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+                    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+                    <style>
+                        #map {{ height: 500px; }}
+                    </style>
+                </head>
+                <body>
+                    <div id="map"></div>
+                    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+                    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+                    <script>
+                        var map = L.map('map').setView([{start_coords[0]}, {start_coords[1]}], 13);
+                        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{ attribution: '&copy; OpenStreetMap contributors' }}).addTo(map);
+
+                        var routeControl = L.Routing.control({{
+                            waypoints: [
+                                L.latLng({start_coords[0]}, {start_coords[1]}),
+                                L.latLng({end_coords[0]}, {end_coords[1]})
+                            ],
+                            createMarker: function (i, waypoint) {{
+                                const iconUrl = i === 0 ? 'https://cdn-icons-png.flaticon.com/512/1144/1144709.png' : 'https://cdn-icons-png.flaticon.com/512/10522/10522034.png';
+                                return L.marker(waypoint.latLng, {{ icon: L.icon({{ iconUrl, iconSize: [50, 50], iconAnchor: [25, 50] }}) }});
+                            }}
+                        }}).addTo(map);
+                    </script>
+                </body>
+                </html>
+                """,
+                height=550,
+            )
         else:
             st.error("Could not retrieve coordinates for the specified locations.")
     else:
